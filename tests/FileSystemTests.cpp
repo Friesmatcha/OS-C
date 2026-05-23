@@ -3,6 +3,7 @@
 #include "domain/Types.hpp"
 #include "core/FileSystemService.hpp"
 #include "persistence/JsonRepository.hpp"
+#include "cli/CommandParser.hpp"
 
 TEST_CASE(smoke_test_runner_executes_tests) {
     ASSERT_TRUE(true);
@@ -143,6 +144,15 @@ TEST_CASE(json_repository_saves_and_loads_written_file_state) {
     ASSERT_TRUE(service.login("admin", "admin").success);
     ASSERT_TRUE(service.open("/persist.txt", "r").success);
     ASSERT_EQ(service.read(3, 5).message, std::string("saved"));
+}
+
+TEST_CASE(command_parser_preserves_write_content_as_single_argument) {
+    ParsedCommand parsed = parseCommandLine("write 3 hello world from fs");
+
+    ASSERT_EQ(parsed.name, std::string("write"));
+    ASSERT_EQ(parsed.args.size(), static_cast<std::size_t>(2));
+    ASSERT_EQ(parsed.args[0], std::string("3"));
+    ASSERT_EQ(parsed.args[1], std::string("hello world from fs"));
 }
 
 int main() {
