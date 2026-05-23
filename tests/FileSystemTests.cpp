@@ -38,6 +38,33 @@ TEST_CASE(login_rejects_wrong_password) {
     ASSERT_EQ(result.message, std::string("Invalid username or password"));
 }
 
+TEST_CASE(mkdir_cd_pwd_and_ls_use_linux_like_paths) {
+    FileSystemService service(createDefaultState());
+    ASSERT_TRUE(service.login("admin", "admin").success);
+
+    ASSERT_TRUE(service.mkdir("/home").success);
+    ASSERT_TRUE(service.mkdir("/home/docs").success);
+    ASSERT_TRUE(service.cd("/home/docs").success);
+    ASSERT_EQ(service.pwd().message, std::string("/home/docs"));
+    ASSERT_TRUE(service.cd("..").success);
+    ASSERT_EQ(service.pwd().message, std::string("/home"));
+
+    CommandResult listing = service.ls(".");
+    ASSERT_TRUE(listing.success);
+    ASSERT_TRUE(listing.message.find("docs directory") != std::string::npos);
+}
+
+TEST_CASE(duplicate_names_in_same_directory_are_rejected) {
+    FileSystemService service(createDefaultState());
+    ASSERT_TRUE(service.login("admin", "admin").success);
+
+    ASSERT_TRUE(service.mkdir("/tmp").success);
+    CommandResult duplicate = service.mkdir("/tmp");
+
+    ASSERT_TRUE(!duplicate.success);
+    ASSERT_EQ(duplicate.message, std::string("Already exists"));
+}
+
 int main() {
     int failed = 0;
     for (const auto& test : testCases()) {

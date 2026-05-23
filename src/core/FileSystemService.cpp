@@ -1,4 +1,5 @@
 #include "core/FileSystemService.hpp"
+#include "core/PathResolver.hpp"
 
 #include <algorithm>
 #include <utility>
@@ -37,7 +38,7 @@ CommandResult FileSystemService::pwd() const {
     if (!currentUserId_.has_value()) {
         return {false, "Not logged in"};
     }
-    return {true, "/"};
+    return {true, absolutePathForNode(state_, currentDirectoryId_)};
 }
 
 std::string FileSystemService::currentUsername() const {
@@ -50,3 +51,54 @@ std::string FileSystemService::currentUsername() const {
     return it == state_.users.end() ? "" : it->username;
 }
 
+
+CommandResult FileSystemService::mkdir(const std::string& path) {
+    if (!currentUserId_.has_value()) {
+        return {false, "Not logged in"};
+    }
+    auto [parentId, name] = resolveParentAndName(state_, currentDirectoryId_, path);
+    if (!parentId.has_value()) {
+        return {false, "Not found"};
+    }
+    if (findChildNodeId(state_, *parentId, name).has_value()) {
+        return {false, "Already exists"};
+    }
+    const std::time_t now = std::time(nullptr);
+    state_.nodes.push_back({state_.nextNodeId++, *parentId, name, NodeType::Directory, *currentUserId_, 1, Permission{"rwxr-xr-x"}, 0, now, now, false});
+    return {true, "Directory created"};
+}
+
+CommandResult FileSystemService::cd(const std::string& path) {
+    if (!currentUserId_.has_value()) {
+        return {false, "Not logged in"};
+    }
+    std::optional<int> nodeId = resolvePath(state_, currentDirectoryId_, path);
+    if (!nodeId.has_value()) {
+        return {false, "Not found"};
+    }
+    auto it = std::find_if(state_.nodes.begin(), state_.nodes.end(), [&](const FsNode& node) {
+        return node.id == *nodeId && !node.deleted;
+    });
+    if (it == state_.nodes.end() || it->type != NodeType::Directory) {
+        return {false, "Not a directory"};
+    }
+    currentDirectoryId_ = *nodeId;
+    return {true, absolutePathForNode(state_, currentDirectoryId_)};
+}
+
+CommandResult FileSystemService::ls(const std::string& path) const {
+    if (!currentUserId_.has_value()) {
+        return {false, "Not logged in"};
+    }
+    std::optional<int> nodeId = resolvePath(state_, currentDirectoryId_, path);
+    if (!nodeId.has_value()) {
+        return {false, "Not found"};
+    }
+    std::string output;
+    for (const FsNode& node : state_.nodes) {
+        if (!node.deleted && node.parentId.has_value() && *node.parentId == *nodeId) {
+            output += node.name + " " + (node.type == NodeType::Directory ? "directory" : "file") + "\n";
+        }
+    }
+    return {true, output};
+}

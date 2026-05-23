@@ -13,6 +13,9 @@ public:
     CommandResult login(const std::string& username, const std::string& password);
     CommandResult logout();
     CommandResult pwd() const;
+    CommandResult mkdir(const std::string& path);
+    CommandResult cd(const std::string& path);
+    CommandResult ls(const std::string& path = ".") const;
     std::string currentUsername() const;
 
 private:
