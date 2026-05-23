@@ -168,6 +168,26 @@ TEST_CASE(register_users_rmdir_and_logs_complete_cli_mvp) {
     ASSERT_TRUE(service.state().logs.size() >= 1);
 }
 
+TEST_CASE(permission_bits_reject_unauthorized_users_and_allow_admin_override) {
+    FileSystemService service(createDefaultState());
+
+    ASSERT_TRUE(service.login("user1", "user1").success);
+    ASSERT_EQ(service.create("/blocked.txt").message, std::string("Permission denied"));
+    ASSERT_TRUE(service.logout().success);
+
+    ASSERT_TRUE(service.login("admin", "admin").success);
+    ASSERT_TRUE(service.mkdir("/shared").success);
+    ASSERT_TRUE(service.chmod("/shared", "rwxrwxrwx").success);
+    ASSERT_TRUE(service.create("/secret.txt").success);
+    ASSERT_TRUE(service.chmod("/secret.txt", "rw-------").success);
+    ASSERT_TRUE(service.logout().success);
+
+    ASSERT_TRUE(service.login("user1", "user1").success);
+    ASSERT_TRUE(service.create("/shared/mine.txt").success);
+    ASSERT_EQ(service.open("/secret.txt", "r").message, std::string("Permission denied"));
+    ASSERT_EQ(service.stat("/secret.txt").message, std::string("Permission denied"));
+}
+
 int main() {
     int failed = 0;
     for (const auto& test : testCases()) {

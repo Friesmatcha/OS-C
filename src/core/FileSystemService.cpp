@@ -56,6 +56,11 @@ const FsState& FileSystemService::state() const {
     return state_;
 }
 
+static FsNode* findNode(FsState& state, int id);
+static const FsNode* findNodeConst(const FsState& state, int id);
+static bool hasPermission(const FsState& state, int userId, const FsNode& node, char permission);
+static bool isAdminUser(const FsState& state, int userId);
+
 CommandResult FileSystemService::mkdir(const std::string& path) {
     if (!currentUserId_.has_value()) {
         return {false, "Not logged in"};
@@ -63,6 +68,10 @@ CommandResult FileSystemService::mkdir(const std::string& path) {
     auto [parentId, name] = resolveParentAndName(state_, currentDirectoryId_, path);
     if (!parentId.has_value()) {
         return {false, "Not found"};
+    }
+    const FsNode* parent = findNodeConst(state_, *parentId);
+    if (parent == nullptr || !hasPermission(state_, *currentUserId_, *parent, 'w') || !hasPermission(state_, *currentUserId_, *parent, 'x')) {
+        return {false, "Permission denied"};
     }
     if (findChildNodeId(state_, *parentId, name).has_value()) {
         return {false, "Already exists"};
@@ -130,6 +139,34 @@ static const FsNode* findNodeConst(const FsState& state, int id) {
     return it == state.nodes.end() ? nullptr : &*it;
 }
 
+static const User* findUserById(const FsState& state, int id) {
+    auto it = std::find_if(state.users.begin(), state.users.end(), [&](const User& user) { return user.id == id; });
+    return it == state.users.end() ? nullptr : &*it;
+}
+
+static bool isAdminUser(const FsState& state, int userId) {
+    const User* user = findUserById(state, userId);
+    return user != nullptr && user->role == UserRole::Admin;
+}
+
+static bool hasPermission(const FsState& state, int userId, const FsNode& node, char permission) {
+    if (isAdminUser(state, userId)) {
+        return true;
+    }
+    const User* user = findUserById(state, userId);
+    if (user == nullptr) {
+        return false;
+    }
+    int base = 6;
+    if (node.ownerUserId == userId) {
+        base = 0;
+    } else if (node.groupId == user->groupId) {
+        base = 3;
+    }
+    int offset = permission == 'r' ? 0 : (permission == 'w' ? 1 : 2);
+    return node.permissions.value.size() == 9 && node.permissions.value[base + offset] == permission;
+}
+
 CommandResult FileSystemService::create(const std::string& path) {
     if (!currentUserId_.has_value()) {
         return {false, "Not logged in"};
@@ -137,6 +174,10 @@ CommandResult FileSystemService::create(const std::string& path) {
     auto [parentId, name] = resolveParentAndName(state_, currentDirectoryId_, path);
     if (!parentId.has_value()) {
         return {false, "Not found"};
+    }
+    const FsNode* parent = findNodeConst(state_, *parentId);
+    if (parent == nullptr || !hasPermission(state_, *currentUserId_, *parent, 'w') || !hasPermission(state_, *currentUserId_, *parent, 'x')) {
+        return {false, "Permission denied"};
     }
     if (findChildNodeId(state_, *parentId, name).has_value()) {
         return {false, "Already exists"};
@@ -158,6 +199,9 @@ CommandResult FileSystemService::stat(const std::string& path) const {
     if (node == nullptr) {
         return {false, "Not found"};
     }
+    if (!hasPermission(state_, *currentUserId_, *node, 'r')) {
+        return {false, "Permission denied"};
+    }
     return {true, node->name + " " + (node->type == NodeType::Directory ? "directory " : "file ") + std::to_string(node->sizeBytes) + " " + node->permissions.value};
 }
 
@@ -175,6 +219,9 @@ CommandResult FileSystemService::chmod(const std::string& path, const std::strin
     FsNode* node = findNode(state_, *nodeId);
     if (node == nullptr) {
         return {false, "Not found"};
+    }
+    if (!isAdminUser(state_, *currentUserId_) && node->ownerUserId != *currentUserId_) {
+        return {false, "Permission denied"};
     }
     node->permissions.value = mode;
     node->updatedAt = std::time(nullptr);
@@ -292,6 +339,7 @@ CommandResult FileSystemService::open(const std::string& path, const std::string
     if (!nodeId.has_value()) return {false, "Not found"};
     FsNode* node = findNode(state_, *nodeId);
     if (node == nullptr || node->type != NodeType::File) return {false, "Not a file"};
+    if ((isReadMode(*parsed) && !hasPermission(state_, *currentUserId_, *node, 'r')) || (isWriteMode(*parsed) && !hasPermission(state_, *currentUserId_, *node, 'w'))) return {false, "Permission denied"};
     if (hasLockConflict(openFiles_, node->id, *parsed)) return {false, "File is locked"};
     int fd = nextFd_++;
     openFiles_.push_back({fd, *currentUserId_, node->id, *parsed, 0, std::time(nullptr)});
