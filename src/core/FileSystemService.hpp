@@ -25,6 +25,7 @@ public:
     CommandResult read(int fd, std::size_t size);
     CommandResult write(int fd, const std::string& content);
     std::string currentUsername() const;
+    const FsState& state() const;
 
 private:
     FsState state_;

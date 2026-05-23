@@ -52,6 +52,10 @@ std::string FileSystemService::currentUsername() const {
 }
 
 
+const FsState& FileSystemService::state() const {
+    return state_;
+}
+
 CommandResult FileSystemService::mkdir(const std::string& path) {
     if (!currentUserId_.has_value()) {
         return {false, "Not logged in"};

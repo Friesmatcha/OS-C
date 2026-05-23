@@ -2,6 +2,7 @@
 
 #include "domain/Types.hpp"
 #include "core/FileSystemService.hpp"
+#include "persistence/JsonRepository.hpp"
 
 TEST_CASE(smoke_test_runner_executes_tests) {
     ASSERT_TRUE(true);
@@ -121,6 +122,27 @@ TEST_CASE(read_write_protection_enforces_conflict_matrix) {
     ASSERT_EQ(service.open("/shared.txt", "r").message, std::string("File is locked"));
     ASSERT_TRUE(service.close(5).success);
     ASSERT_TRUE(service.open("/shared.txt", "w").success);
+}
+
+TEST_CASE(json_repository_saves_and_loads_written_file_state) {
+    const std::string path = "build/test_state.json";
+    {
+        FileSystemService service(createDefaultState());
+        ASSERT_TRUE(service.login("admin", "admin").success);
+        ASSERT_TRUE(service.create("/persist.txt").success);
+        ASSERT_TRUE(service.open("/persist.txt", "rw").success);
+        ASSERT_TRUE(service.write(3, "saved").success);
+        JsonRepository repository(path);
+        ASSERT_TRUE(repository.save(service.state()).success);
+    }
+
+    JsonRepository repository(path);
+    auto loaded = repository.load();
+    ASSERT_TRUE(loaded.has_value());
+    FileSystemService service(*loaded);
+    ASSERT_TRUE(service.login("admin", "admin").success);
+    ASSERT_TRUE(service.open("/persist.txt", "r").success);
+    ASSERT_EQ(service.read(3, 5).message, std::string("saved"));
 }
 
 int main() {
