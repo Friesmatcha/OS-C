@@ -1,7 +1,7 @@
 CXX := g++
 CXXFLAGS := -std=c++17 -Wall -Wextra -Wpedantic -Isrc -Itests
 
-CORE_SOURCES :=
+CORE_SOURCES := src/core/FileSystemService.cpp
 TEST_SOURCES := tests/FileSystemTests.cpp $(CORE_SOURCES)
 CLI_SOURCES := src/cli/main.cpp src/cli/CommandParser.cpp $(CORE_SOURCES)
 
