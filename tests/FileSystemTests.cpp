@@ -1,8 +1,20 @@
 #include "TestHarness.hpp"
 
+#include "domain/Types.hpp"
+
 TEST_CASE(smoke_test_runner_executes_tests) {
     ASSERT_TRUE(true);
     ASSERT_EQ(1 + 1, 2);
+}
+
+TEST_CASE(default_state_contains_three_users_and_root) {
+    FsState state = createDefaultState();
+
+    ASSERT_EQ(state.users.size(), static_cast<std::size_t>(3));
+    ASSERT_EQ(state.groups.size(), static_cast<std::size_t>(2));
+    ASSERT_EQ(state.nodes.size(), static_cast<std::size_t>(1));
+    ASSERT_EQ(state.nodes.front().name, std::string("/"));
+    ASSERT_EQ(state.nodes.front().permissions.value, std::string("rwxr-xr-x"));
 }
 
 int main() {
