@@ -16,6 +16,10 @@ public:
     CommandResult mkdir(const std::string& path);
     CommandResult cd(const std::string& path);
     CommandResult ls(const std::string& path = ".") const;
+    CommandResult create(const std::string& path);
+    CommandResult stat(const std::string& path) const;
+    CommandResult chmod(const std::string& path, const std::string& mode);
+    CommandResult rm(const std::string& path);
     std::string currentUsername() const;
 
 private:

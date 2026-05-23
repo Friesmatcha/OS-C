@@ -65,6 +65,29 @@ TEST_CASE(duplicate_names_in_same_directory_are_rejected) {
     ASSERT_EQ(duplicate.message, std::string("Already exists"));
 }
 
+TEST_CASE(create_stat_chmod_and_rm_manage_file_metadata) {
+    FileSystemService service(createDefaultState());
+    ASSERT_TRUE(service.login("admin", "admin").success);
+
+    ASSERT_TRUE(service.create("/readme.txt").success);
+    CommandResult stat = service.stat("/readme.txt");
+    ASSERT_TRUE(stat.success);
+    ASSERT_TRUE(stat.message.find("readme.txt file 0 rw-r--r--") != std::string::npos);
+
+    ASSERT_TRUE(service.chmod("/readme.txt", "rw-------").success);
+    ASSERT_TRUE(service.stat("/readme.txt").message.find("rw-------") != std::string::npos);
+    ASSERT_TRUE(service.rm("/readme.txt").success);
+    ASSERT_EQ(service.stat("/readme.txt").message, std::string("Not found"));
+}
+
+TEST_CASE(unauthenticated_file_operations_are_rejected) {
+    FileSystemService service(createDefaultState());
+
+    ASSERT_EQ(service.create("/x").message, std::string("Not logged in"));
+    ASSERT_EQ(service.rm("/x").message, std::string("Not logged in"));
+    ASSERT_EQ(service.chmod("/x", "rwx------").message, std::string("Not logged in"));
+}
+
 int main() {
     int failed = 0;
     for (const auto& test : testCases()) {
