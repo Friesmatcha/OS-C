@@ -155,6 +155,19 @@ TEST_CASE(command_parser_preserves_write_content_as_single_argument) {
     ASSERT_EQ(parsed.args[1], std::string("hello world from fs"));
 }
 
+TEST_CASE(register_users_rmdir_and_logs_complete_cli_mvp) {
+    FileSystemService service(createDefaultState());
+
+    ASSERT_TRUE(service.registerUser("newuser", "pw").success);
+    ASSERT_TRUE(service.login("admin", "admin").success);
+    ASSERT_TRUE(service.users().message.find("newuser user active") != std::string::npos);
+    ASSERT_TRUE(service.mkdir("/empty").success);
+    ASSERT_TRUE(service.rmdir("/empty").success);
+
+    service.recordLog("pwd", {true, "/"});
+    ASSERT_TRUE(service.state().logs.size() >= 1);
+}
+
 int main() {
     int failed = 0;
     for (const auto& test : testCases()) {

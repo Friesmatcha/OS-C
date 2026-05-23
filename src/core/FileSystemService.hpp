@@ -24,6 +24,10 @@ public:
     CommandResult close(int fd);
     CommandResult read(int fd, std::size_t size);
     CommandResult write(int fd, const std::string& content);
+    CommandResult registerUser(const std::string& username, const std::string& password);
+    CommandResult users() const;
+    CommandResult rmdir(const std::string& path);
+    void recordLog(const std::string& rawCommand, const CommandResult& result);
     std::string currentUsername() const;
     const FsState& state() const;
 

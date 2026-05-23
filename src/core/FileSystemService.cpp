@@ -328,3 +328,50 @@ CommandResult FileSystemService::write(int fd, const std::string& content) {
     it->offsetBytes += content.size();
     return {true, "Wrote " + std::to_string(content.size()) + " bytes"};
 }
+
+CommandResult FileSystemService::registerUser(const std::string& username, const std::string& password) {
+    if (findUserByName(username) != nullptr) {
+        return {false, "Already exists"};
+    }
+    state_.users.push_back({state_.nextUserId++, username, hashPasswordForDevelopment(password), 2, UserRole::User, UserStatus::Active, std::time(nullptr)});
+    return {true, "User registered"};
+}
+
+CommandResult FileSystemService::users() const {
+    if (!currentUserId_.has_value()) {
+        return {false, "Not logged in"};
+    }
+    std::string output;
+    for (const User& user : state_.users) {
+        output += user.username + " " + (user.role == UserRole::Admin ? "admin" : "user") + " " + (user.status == UserStatus::Active ? "active" : "disabled") + "\n";
+    }
+    return {true, output};
+}
+
+CommandResult FileSystemService::rmdir(const std::string& path) {
+    if (!currentUserId_.has_value()) {
+        return {false, "Not logged in"};
+    }
+    std::optional<int> nodeId = resolvePath(state_, currentDirectoryId_, path);
+    if (!nodeId.has_value()) {
+        return {false, "Not found"};
+    }
+    FsNode* node = findNode(state_, *nodeId);
+    if (node == nullptr || node->type != NodeType::Directory) {
+        return {false, "Not a directory"};
+    }
+    if (node->id == 1) {
+        return {false, "Permission denied"};
+    }
+    for (const FsNode& child : state_.nodes) {
+        if (!child.deleted && child.parentId.has_value() && *child.parentId == node->id) {
+            return {false, "Directory not empty"};
+        }
+    }
+    node->deleted = true;
+    return {true, "Directory removed"};
+}
+
+void FileSystemService::recordLog(const std::string& rawCommand, const CommandResult& result) {
+    state_.logs.push_back({state_.nextLogId++, currentUserId_, rawCommand, result.message, result.success, std::time(nullptr)});
+}
