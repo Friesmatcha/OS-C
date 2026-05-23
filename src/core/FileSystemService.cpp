@@ -195,3 +195,132 @@ CommandResult FileSystemService::rm(const std::string& path) {
     node->deleted = true;
     return {true, "File removed"};
 }
+
+static std::optional<OpenMode> parseOpenMode(const std::string& mode) {
+    if (mode == "r") return OpenMode::Read;
+    if (mode == "w") return OpenMode::Write;
+    if (mode == "rw") return OpenMode::ReadWrite;
+    return std::nullopt;
+}
+
+static bool isWriteMode(OpenMode mode) {
+    return mode == OpenMode::Write || mode == OpenMode::ReadWrite;
+}
+
+static bool isReadMode(OpenMode mode) {
+    return mode == OpenMode::Read || mode == OpenMode::ReadWrite;
+}
+
+static bool hasLockConflict(const std::vector<OpenFileEntry>& openFiles, int nodeId, OpenMode requested) {
+    for (const OpenFileEntry& entry : openFiles) {
+        if (entry.fileNodeId != nodeId) {
+            continue;
+        }
+        if (isWriteMode(entry.mode) || isWriteMode(requested)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static std::string readFileContent(const FsState& state, int nodeId) {
+    std::vector<FileBlockIndex> indexes;
+    for (const FileBlockIndex& index : state.indexes) {
+        if (index.fileNodeId == nodeId) {
+            indexes.push_back(index);
+        }
+    }
+    std::sort(indexes.begin(), indexes.end(), [](const auto& left, const auto& right) {
+        return left.logicalBlockNo < right.logicalBlockNo;
+    });
+    std::string content;
+    for (const FileBlockIndex& index : indexes) {
+        auto block = std::find_if(state.dataBlocks.begin(), state.dataBlocks.end(), [&](const DataBlock& item) {
+            return item.id == index.dataBlockId && item.used;
+        });
+        if (block != state.dataBlocks.end()) {
+            content += block->content;
+        }
+    }
+    const FsNode* node = findNodeConst(state, nodeId);
+    if (node != nullptr && content.size() > node->sizeBytes) {
+        content.resize(node->sizeBytes);
+    }
+    return content;
+}
+
+static void writeFileContent(FsState& state, int nodeId, const std::string& content) {
+    for (DataBlock& block : state.dataBlocks) {
+        for (const FileBlockIndex& index : state.indexes) {
+            if (index.fileNodeId == nodeId && index.dataBlockId == block.id) {
+                block.used = false;
+                block.content.clear();
+            }
+        }
+    }
+    state.indexes.erase(std::remove_if(state.indexes.begin(), state.indexes.end(), [&](const FileBlockIndex& index) {
+        return index.fileNodeId == nodeId;
+    }), state.indexes.end());
+    constexpr std::size_t blockSize = 512;
+    int logical = 0;
+    for (std::size_t offset = 0; offset < content.size(); offset += blockSize) {
+        DataBlock block;
+        block.id = state.nextBlockId++;
+        block.blockNo = block.id;
+        block.used = true;
+        block.content = content.substr(offset, blockSize);
+        block.updatedAt = std::time(nullptr);
+        state.dataBlocks.push_back(block);
+        state.indexes.push_back({nodeId, logical++, block.id});
+    }
+    FsNode* node = findNode(state, nodeId);
+    if (node != nullptr) {
+        node->sizeBytes = content.size();
+        node->updatedAt = std::time(nullptr);
+    }
+}
+
+CommandResult FileSystemService::open(const std::string& path, const std::string& mode) {
+    if (!currentUserId_.has_value()) return {false, "Not logged in"};
+    std::optional<OpenMode> parsed = parseOpenMode(mode);
+    if (!parsed.has_value()) return {false, "Invalid arguments"};
+    std::optional<int> nodeId = resolvePath(state_, currentDirectoryId_, path);
+    if (!nodeId.has_value()) return {false, "Not found"};
+    FsNode* node = findNode(state_, *nodeId);
+    if (node == nullptr || node->type != NodeType::File) return {false, "Not a file"};
+    if (hasLockConflict(openFiles_, node->id, *parsed)) return {false, "File is locked"};
+    int fd = nextFd_++;
+    openFiles_.push_back({fd, *currentUserId_, node->id, *parsed, 0, std::time(nullptr)});
+    return {true, "fd " + std::to_string(fd)};
+}
+
+CommandResult FileSystemService::close(int fd) {
+    auto it = std::find_if(openFiles_.begin(), openFiles_.end(), [&](const OpenFileEntry& entry) { return entry.fd == fd; });
+    if (it == openFiles_.end()) return {false, "Invalid fd"};
+    openFiles_.erase(it);
+    return {true, "Closed"};
+}
+
+CommandResult FileSystemService::read(int fd, std::size_t size) {
+    auto it = std::find_if(openFiles_.begin(), openFiles_.end(), [&](const OpenFileEntry& entry) { return entry.fd == fd; });
+    if (it == openFiles_.end()) return {false, "Invalid fd"};
+    if (!isReadMode(it->mode)) return {false, "Permission denied"};
+    std::string content = readFileContent(state_, it->fileNodeId);
+    std::string output = it->offsetBytes >= content.size() ? "" : content.substr(it->offsetBytes, size);
+    it->offsetBytes += output.size();
+    return {true, output};
+}
+
+CommandResult FileSystemService::write(int fd, const std::string& content) {
+    auto it = std::find_if(openFiles_.begin(), openFiles_.end(), [&](const OpenFileEntry& entry) { return entry.fd == fd; });
+    if (it == openFiles_.end()) return {false, "Invalid fd"};
+    if (!isWriteMode(it->mode)) return {false, "Permission denied"};
+    std::string existing = readFileContent(state_, it->fileNodeId);
+    if (it->offsetBytes > existing.size()) {
+        existing.resize(it->offsetBytes, '\0');
+    }
+    existing.replace(it->offsetBytes, content.size(), content);
+    writeFileContent(state_, it->fileNodeId, existing);
+    it->offsetBytes += content.size();
+    return {true, "Wrote " + std::to_string(content.size()) + " bytes"};
+}

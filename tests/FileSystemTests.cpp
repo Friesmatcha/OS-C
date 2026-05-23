@@ -88,6 +88,41 @@ TEST_CASE(unauthenticated_file_operations_are_rejected) {
     ASSERT_EQ(service.chmod("/x", "rwx------").message, std::string("Not logged in"));
 }
 
+TEST_CASE(open_write_close_and_read_round_trip_file_content) {
+    FileSystemService service(createDefaultState());
+    ASSERT_TRUE(service.login("admin", "admin").success);
+    ASSERT_TRUE(service.create("/note.txt").success);
+
+    CommandResult openWrite = service.open("/note.txt", "rw");
+    ASSERT_TRUE(openWrite.success);
+    ASSERT_EQ(openWrite.message, std::string("fd 3"));
+    ASSERT_TRUE(service.write(3, "hello").success);
+    ASSERT_TRUE(service.close(3).success);
+
+    CommandResult openRead = service.open("/note.txt", "r");
+    ASSERT_TRUE(openRead.success);
+    CommandResult read = service.read(4, 5);
+    ASSERT_TRUE(read.success);
+    ASSERT_EQ(read.message, std::string("hello"));
+}
+
+TEST_CASE(read_write_protection_enforces_conflict_matrix) {
+    FileSystemService service(createDefaultState());
+    ASSERT_TRUE(service.login("admin", "admin").success);
+    ASSERT_TRUE(service.create("/shared.txt").success);
+
+    ASSERT_TRUE(service.open("/shared.txt", "r").success);
+    ASSERT_TRUE(service.open("/shared.txt", "r").success);
+    ASSERT_EQ(service.open("/shared.txt", "w").message, std::string("File is locked"));
+    ASSERT_TRUE(service.close(3).success);
+    ASSERT_TRUE(service.close(4).success);
+
+    ASSERT_TRUE(service.open("/shared.txt", "w").success);
+    ASSERT_EQ(service.open("/shared.txt", "r").message, std::string("File is locked"));
+    ASSERT_TRUE(service.close(5).success);
+    ASSERT_TRUE(service.open("/shared.txt", "w").success);
+}
+
 int main() {
     int failed = 0;
     for (const auto& test : testCases()) {

@@ -20,6 +20,10 @@ public:
     CommandResult stat(const std::string& path) const;
     CommandResult chmod(const std::string& path, const std::string& mode);
     CommandResult rm(const std::string& path);
+    CommandResult open(const std::string& path, const std::string& mode);
+    CommandResult close(int fd);
+    CommandResult read(int fd, std::size_t size);
+    CommandResult write(int fd, const std::string& content);
     std::string currentUsername() const;
 
 private:
